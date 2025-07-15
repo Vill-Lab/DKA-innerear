@@ -1,6 +1,6 @@
 # Tuning Medical Foundation Models for Inner Ear Temporal CT Analysis with Plug-and-play Domain Knowledge Aggregator
 
-Plug-and-Play Domain Knowledge Aggregator for inner ear CT analysis
+Plug-and-Play Domain Knowledge Aggregator for inner ear CT analysis.
 
 ## 📜 Introduction
 
@@ -10,7 +10,7 @@ The IEITD dataset is constructed by Visual and Intelligent Learning Lab, Tongji 
 
 Fig 1. The overall architecture of our pipeline. DKGT consists of two main components: Domain Knowledge Generator and Domain Knowledge Aggregator.
 
-## training
+## Training
 
 Clone the code and follow the institution to install Merlin and CT-FM and download their pretrained models.
 
