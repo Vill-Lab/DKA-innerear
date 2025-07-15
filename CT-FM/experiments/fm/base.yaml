@@ -1,0 +1,79 @@
+project: .
+vars:
+    NUM_FTRS_BY_BACKBONE: {"SegResNetDS": 512, "ResNet50x2": 4096}
+    SPACING: [3, 1, 1]
+
+trainer:
+    _target_: pytorch_lightning.Trainer
+    benchmark: True
+    # Full run - 500 epochs, 500 batches per epoch, 4 batch size, 4 GPUs / 148,134 dataset size ≈ 27 epochs
+    max_epochs: 500
+    limit_train_batches: 500
+    accelerator: gpu
+    devices: 4
+    strategy: ddp
+    sync_batchnorm: True
+    precision: 16-mixed
+    log_every_n_steps: 100
+    logger: 
+        _target_: pytorch_lightning.loggers.WandbLogger
+        name: $f"CT_FM_{@vars#FRAMEWORK}_{@vars#BACKBONE_NAME}"
+        project: CT_FM
+        save_dir: $f"/mnt/ssd1/ibro/IDC_SSL_CT/runs/fm/logs/CT_FM_{@vars#FRAMEWORK}_{@vars#BACKBONE_NAME}"
+  
+    callbacks:
+        # Save the last checkpoint
+        - _target_: pytorch_lightning.callbacks.ModelCheckpoint
+          dirpath: $f"/mnt/ssd1/ibro/IDC_SSL_CT/runs/fm/checkpoints/CT_FM_{@vars#FRAMEWORK}_{@vars#BACKBONE_NAME}"
+          save_last: True
+          verbose: True
+          every_n_epochs: 1
+        # Save a checkpoint every 10 epochs
+        - _target_: pytorch_lightning.callbacks.ModelCheckpoint
+          dirpath: $f"/mnt/ssd1/ibro/IDC_SSL_CT/runs/fm/checkpoints/CT_FM_{@vars#FRAMEWORK}_{@vars#BACKBONE_NAME}"
+          save_last: False
+          save_top_k: -1
+          verbose: True
+          every_n_epochs: 10
+system:
+    _target_: lighter.System
+
+    model:
+
+    optimizer:
+        _target_: torch.optim.AdamW
+        params: "$@system#model.parameters()"
+        # Learning rate calculated as per: `lr = (effective_batch_size) / 256 * base_lr`
+        lr: 0.0001
+        weight_decay: 0.000001
+  
+    scheduler:
+        _target_: monai.optimizers.WarmupCosineSchedule
+        optimizer: "@system#optimizer"
+        warmup_steps: 10  # First 10 epochs
+        t_total: $@trainer#max_epochs
+  
+    dataloaders:
+        train:
+            _target_: torch.utils.data.DataLoader
+            batch_size: 4
+            pin_memory: True
+            num_workers: 5        
+            dataset:
+                _target_: project.data.safe_dataset.SafeDataset
+                dataset:
+                    _target_: monai.data.Dataset
+                    data: "$pickle.load(open('/mnt/ssd1/ibro/IDC_SSL_CT/scan_list.pkl', 'rb'))"
+                    _requires_: "$import pickle"
+                    transform:
+
+
+    adapters:
+        train:
+            batch:
+                _target_: lighter.adapters.BatchAdapter
+                input_accessor: "input"
+
+            criterion:
+                _target_: lighter.adapters.CriterionAdapter
+                pred_argument: 0

@@ -1,0 +1,11 @@
+vars#BACKBONE_NAME: SegResNetDS
+
+# This architecture is used by Reconstruction.
+system#model#model#backbone: 
+    _target_: monai.networks.nets.SegResNetDS
+    spatial_dims: 3
+    in_channels: 1
+    out_channels: 1
+    init_filters: 32
+    blocks_down: [1, 2, 2, 4, 4]
+    dsdepth: 4

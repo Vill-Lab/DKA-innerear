@@ -1,0 +1,111 @@
+vars#FRAMEWORK: SimSiam_Intrasample
+vars#PATCH_SIZE_MM: [64, 128, 128] # Patch size in mm 
+vars#PATCH_SIZE_VOXELS: "$[math.ceil((@vars#PATCH_SIZE_MM[i]//@vars#SPACING[i])/16) * 16 for i in range(3)]"
+_requires_: "$import math"
+vars#NUM_CONTRASTIVE_CROPS: 15
+
+system#model: 
+    _target_: torch.compile
+    model:
+      _target_: project.models.frameworks.SimSiam
+      num_ftrs: '$@vars#NUM_FTRS_BY_BACKBONE[@vars#BACKBONE_NAME]'
+      backbone:
+
+system#criterion:
+    _target_: project.loss.IntraSampleWrapper
+    loss:
+        _target_: project.loss.SimSiamLoss
+    
+
+system#dataloaders#train#dataset#dataset#transform:
+    # Parent torchvision Compose so that the monai Compose children can have different map_items.
+    # A parent monai Compose would force all children to have its map_items.
+    _target_: torchvision.transforms.Compose
+    transforms:
+        - _target_: monai.transforms.Compose
+          # `map_items=True` - When input to a Transform is a list, apply the transform to each element of the list.
+          map_items: True
+          transforms:
+              - _target_: monai.transforms.LoadImage
+                image_only: True
+              - _target_: monai.transforms.EnsureChannelFirst
+              - _target_: monai.transforms.Orientation
+                axcodes: SPL
+                lazy: True
+              - _target_: monai.transforms.Spacing
+                pixdim: "%vars#SPACING"
+                mode: bilinear
+                lazy: True
+              - _target_: monai.transforms.CropForeground
+                lazy: True
+              - _target_: monai.transforms.SpatialPad
+                spatial_size: "%vars#PATCH_SIZE_VOXELS"
+                value: -1024
+                lazy: True
+              - _target_: monai.transforms.ScaleIntensityRange
+                a_min: -1024
+                a_max: 2048
+                b_min: 0
+                b_max: 1
+                clip: True
+              # Turn into a dict of views
+              - _target_: monai.transforms.Lambda
+                func: '$lambda x: {"view_0": x}'
+              # From this point it's not a Tensor anymore, but a list of NUM_CONTRASTIVE_CROPS Tensors
+              - _target_: monai.transforms.RandSpatialCropSamplesd
+                keys: view_0
+                roi_size: "%vars#PATCH_SIZE_VOXELS"
+                num_samples: "%vars#NUM_CONTRASTIVE_CROPS"
+                lazy: True
+              # Duplicate the view
+              - _target_: monai.transforms.CopyItemsd
+                keys: view_0
+                names: view_1
+              - _target_: project.transforms.ssl.DictifyTransform
+                keys: view_0
+                transform:
+                    _target_: project.transforms.ssl.RandomResizedCrop
+                    size: "%vars#PATCH_SIZE_VOXELS"
+                    scale: [0.33, 1.0]
+              - _target_: project.transforms.ssl.DictifyTransform
+                keys: view_1
+                transform:
+                    _target_: project.transforms.ssl.RandomResizedCrop
+                    size: "%vars#PATCH_SIZE_VOXELS"
+                    scale: [0.33, 1.0]
+              - _target_: monai.transforms.RandFlipd
+                keys: view_0
+                spatial_axis: [0]
+                prob: 0.5
+                lazy: True
+              - _target_: monai.transforms.RandFlipd
+                keys: view_1
+                spatial_axis: [0]
+                prob: 0.5
+                lazy: True
+              - _target_: monai.transforms.RandHistogramShiftd
+                keys: view_0
+                prob: 0.5
+                num_control_points: 5  # Makes distortion stronger
+              - _target_: monai.transforms.RandHistogramShiftd
+                keys: view_1
+                prob: 0.5
+                num_control_points: 5  # Makes distortion stronger
+              - _target_: monai.transforms.RandGaussianSmoothd
+                keys: view_0
+                prob: 0.5
+              - _target_: monai.transforms.RandGaussianSmoothd
+                keys: view_1
+                prob: 0.5
+              - _target_: monai.transforms.ToTensord
+                keys: ["view_0", "view_1"]
+                track_meta: False
+              - _target_: monai.transforms.Lambda
+                func: '$lambda x: (x["view_0"], x["view_1"])'
+
+        # Disable map_items so that the whole list of NUM_CONTRASTIVE_CROPS Tensors is wrapped into input instead of its elements
+        - _target_: monai.transforms.Compose
+          map_items: False
+          transforms:
+              - _target_: monai.transforms.Lambda
+                func: '$lambda x: {"input": x}'

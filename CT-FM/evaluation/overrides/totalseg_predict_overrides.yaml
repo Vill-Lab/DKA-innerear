@@ -1,0 +1,31 @@
+system#adapters:
+    predict:
+      batch: 
+        _target_: lighter.adapters.BatchAdapter
+        input_accessor: "input"
+        target_accessor: "target"
+        identifier_accessor: "id"
+      logging:
+        _target_: lighter.adapters.LoggingAdapter      
+        pred_transforms:
+            _target_: project.transforms.batchapply.BatchApply
+            move_to_cpu: True
+            transforms: 
+              - _target_: monai.transforms.Activations
+                softmax: True
+              - _target_: monai.transforms.AsDiscrete
+                argmax: True
+                dtype: "$torch.int32"
+              # - _target_: monai.transforms.KeepLargestConnectedComponent
+              - "$lambda x: {'target': x}"
+              - _target_: monai.transforms.Invertd
+                keys: target
+                orig_keys: target
+                transform: "@system#dataloaders#predict#dataset#transform"
+              - "$lambda x: x['target']"
+
+trainer#callbacks:
+      - _target_: lighter.callbacks.writer.file.FileWriter
+        # path : "$@vars#save_dir.replace('checkpoints', 'predictions')"
+        path : "predictions"
+        writer: itk_nifti

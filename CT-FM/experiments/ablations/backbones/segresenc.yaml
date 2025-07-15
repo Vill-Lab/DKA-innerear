@@ -1,0 +1,10 @@
+vars#BACKBONE_NAME: SegResNetDS
+
+# This architecture is used by SimCLR and VicRegL.
+system#model#model#backbone:
+    _target_: monai.networks.nets.segresnet_ds.SegResEncoder
+    spatial_dims: 3
+    in_channels: 1
+    init_filters: 32
+    blocks_down: [1, 2, 2, 4, 4]
+    head_module: "$lambda x: x[-1]"

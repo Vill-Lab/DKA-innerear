@@ -1,0 +1,60 @@
+CONSTANTS#FRAMEWORK: Reconstruction
+# CONSTANTS#PATCH_SIZE_MM: [64, 128, 128] # Patch size in mm 
+CONSTANTS#PATCH_SIZE_VOXELS: [64, 320, 320]
+
+system#model:
+    _target_: torch.compile
+    model:
+      _target_: project.models.frameworks.Reconstruction
+      backbone:
+
+
+system#criterion:
+    _target_: monai.losses.DeepSupervisionLoss
+    loss:
+        _target_: torch.nn.MSELoss # Masked autoencoders use MSE
+
+
+system#dataloaders#train#dataset#dataset#transform:
+    _target_: monai.transforms.Compose
+    transforms:
+        - _target_: monai.transforms.LoadImage
+          image_only: True
+        - _target_: monai.transforms.EnsureChannelFirst
+        - _target_: monai.transforms.Orientation
+          axcodes: SPL
+          lazy: True
+        - _target_: monai.transforms.Spacing
+          pixdim: "%vars#SPACING"
+          mode: bilinear
+          lazy: True
+        - _target_: monai.transforms.CropForeground
+          lazy: True
+        - _target_: monai.transforms.SpatialPad
+          spatial_size: "%vars#PATCH_SIZE_VOXELS"
+          value: -1024
+          lazy: True
+        - _target_: monai.transforms.ScaleIntensityRange
+          a_min: -1024
+          a_max: 2048
+          b_min: 0
+          b_max: 1
+          clip: True
+        - _target_: monai.transforms.Lambda
+          func: '$lambda x: {"input": x, "target": x.clone()}'
+        - _target_: monai.transforms.RandSpatialCropd
+          keys: ["input", "target"]
+          roi_size: "%vars#PATCH_SIZE_VOXELS"
+          lazy: True
+        - _target_: monai.transforms.RandCoarseDropoutd
+          keys: input
+          holes: 4
+          spatial_size: "$[int(dim*0.3) for dim in @vars#PATCH_SIZE_VOXELS]"
+          max_spatial_size: "$[int(dim*0.5) for dim in @vars#PATCH_SIZE_VOXELS]"
+          prob: 1
+          fill_value: 0
+        - _target_: monai.transforms.ToTensord
+          keys: ["input", "target"]
+          track_meta: False
+        - _target_: monai.transforms.SelectItemsd
+          keys: ["input", "target"]

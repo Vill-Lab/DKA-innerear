@@ -1,0 +1,106 @@
+vars#FRAMEWORK: VicReg
+vars#PATCH_SIZE_VOXELS: [64, 320, 320]
+_requires_: "$import math"
+
+
+system#model: 
+    _target_: torch.compile
+    model:
+      _target_: project.models.frameworks.VICReg
+      num_ftrs: '$@vars#NUM_FTRS_BY_BACKBONE[@vars#BACKBONE_NAME]'
+      backbone:
+
+system#optimizer#lr: "$((@system#dataloaders#train#batch_size * @trainer#devices)/256) * 0.0007"
+
+
+system#criterion:
+    _target_: project.loss.VICRegLoss
+    
+system#scheduler:
+      ## Fallback when LR is too high
+      _target_: monai.optimizers.WarmupCosineSchedule
+      optimizer: "@system#optimizer"
+      # Ablations - 5 epochs warmup
+      warmup_steps: 3  # First 10 epochs
+      warmup_multiplier: 0.1
+      t_total: $@trainer#max_epochs
+      # Ablations - don't let the learning rate go low
+      end_lr: "$@system#optimizer#lr / 100"
+
+system#dataloaders#train#dataset#dataset#transform:
+    # Parent torchvision Compose so that the monai Compose children can have different map_items.
+    # A parent monai Compose would force all children to have its map_items.
+    _target_: torchvision.transforms.Compose
+    transforms:
+        - _target_: monai.transforms.Compose
+          transforms:
+              - _target_: monai.transforms.LoadImage
+                image_only: True
+              - _target_: monai.transforms.EnsureChannelFirst
+              - _target_: monai.transforms.Orientation
+                axcodes: SPL
+                lazy: True
+              - _target_: monai.transforms.Spacing
+                pixdim: "%vars#SPACING"
+                mode: bilinear
+                lazy: True
+              - _target_: monai.transforms.CropForeground
+                lazy: True
+              - _target_: monai.transforms.SpatialPad
+                spatial_size: "%vars#PATCH_SIZE_VOXELS"
+                value: -1024
+                lazy: True
+              - _target_: monai.transforms.ScaleIntensityRange
+                a_min: -1024
+                a_max: 2048
+                b_min: 0
+                b_max: 1
+                clip: True
+              - _target_: monai.transforms.RandSpatialCrop
+                roi_size: "%vars#PATCH_SIZE_VOXELS"
+              - _target_: monai.transforms.Lambda
+                func: '$lambda x: {"view_0": x}'
+              - _target_: monai.transforms.CopyItemsd
+                keys: view_0
+                names: view_1
+              - _target_: project.transforms.ssl.DictifyTransform
+                keys: view_0
+                transform:
+                    _target_: project.transforms.ssl.RandomResizedCrop
+                    size: "%vars#PATCH_SIZE_VOXELS"
+                    scale: [0.33, 1.0]
+              - _target_: project.transforms.ssl.DictifyTransform
+                keys: view_1
+                transform:
+                    _target_: project.transforms.ssl.RandomResizedCrop
+                    size: "%vars#PATCH_SIZE_VOXELS"
+                    scale: [0.33, 1.0]
+              - _target_: monai.transforms.RandFlipd
+                keys: view_0
+                spatial_axis: [0]
+                prob: 0.5
+                lazy: True
+              - _target_: monai.transforms.RandFlipd
+                keys: view_1
+                spatial_axis: [0]
+                prob: 0.5
+                lazy: True
+              - _target_: monai.transforms.RandHistogramShiftd
+                keys: view_0
+                prob: 0.5
+                num_control_points: 5  # Makes distortion stronger
+              - _target_: monai.transforms.RandHistogramShiftd
+                keys: view_1
+                prob: 0.5
+                num_control_points: 5  # Makes distortion stronger
+              - _target_: monai.transforms.RandGaussianSmoothd
+                keys: view_0
+                prob: 0.5
+              - _target_: monai.transforms.RandGaussianSmoothd
+                keys: view_1
+                prob: 0.5
+              - _target_: monai.transforms.ToTensord
+                keys: ["view_0", "view_1"]
+                track_meta: False
+              - _target_: monai.transforms.Lambda
+                func: '$lambda x: {"input": (x["view_0"], x["view_1"])}'

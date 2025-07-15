@@ -1,0 +1,10 @@
+system#model#trunk:
+    _target_: lighter.utils.model.adjust_prefix_and_load_state_dict
+    ckpt_path: "/mnt/data1/CT_FM/latest_fm_checkpoints/original/epoch=449-step=225000-v1-no-norm.ckpt"
+    ckpt_to_model_prefix: '${"backbone.encoder" : ""} if "recon" in @vars#name else {"backbone.": ""}'
+    model:
+        _target_: monai.networks.nets.segresnet_ds.SegResEncoder
+        spatial_dims: 3
+        in_channels: "@vars#in_channels"
+        init_filters: 32
+        blocks_down: [1, 2, 2, 4, 4]

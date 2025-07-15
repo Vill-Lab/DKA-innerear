@@ -1,0 +1,8 @@
+system#model#trunk:
+    _target_: monai.networks.nets.SegResNetDS
+    spatial_dims: 3
+    in_channels: "@vars#in_channels"
+    out_channels: "@vars#out_channels"
+    init_filters: 32
+    blocks_down: [1, 2, 2, 4, 4]
+    dsdepth: 4

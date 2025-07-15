@@ -1,0 +1,3 @@
+trainer#strategy: ddp_find_unused_parameters_true
+system#dataloaders#train#dataset#data#percentage: 5
+system#dataloaders#val#dataset#data#percentage: 18

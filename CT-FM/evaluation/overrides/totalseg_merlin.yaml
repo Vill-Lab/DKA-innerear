@@ -1,0 +1,18 @@
+vars#group: "merlin_v2"
+vars#dataset_dir: "/mnt/data1/TotalSegmentator/v2/processed"
+
+# ct pelvis, ct abdomen-pelvis, ct abdomen, ct thorax, ct thorax-abdomen, and ct thorax-abdomen-pelvis.
+vars#filter_fn: '$lambda x: x[x["study_type"].isin(["ct pelvis", "ct abdomen-pelvis", "ct abdomen", "ct thorax", "ct thorax-abdomen", "ct thorax-abdomen-pelvis"])]'
+system#dataloaders#train#dataset#data#filter_fn:
+                      # Remove cases where no matching merlin annotation cases are found.
+                      # Not sure what the original paper did
+                      - "$lambda x: x[~x['image_id'].isin(['s1275', 's1341', 's1268', 's1261'])]" 
+                      - "@vars#filter_fn"
+                      - "$lambda x: x[x['split'] == 'train']"
+system#dataloaders#val#dataset#data#filter_fn:
+                      - "@vars#filter_fn"
+                      - "$lambda x: x[x['split'] == 'val']"
+system#dataloaders#predict#dataset#data#filter_fn:
+                      - "@vars#filter_fn"
+                      - "$lambda x: x[x['split'] == 'test']"
+trainer#callbacks#0#until_epoch: 0

@@ -1,0 +1,9 @@
+vars#group: "cardiac_v1" 
+vars#dataset_dir: "/mnt/data1/TotalSegmentator/v1/processed"
+system#datasets#train#data#filter_fn:
+                      - "$lambda x: x[x['sat_split'] == 'train']"
+system#datasets#val#data#filter_fn:
+                      - "$lambda x: x[x['sat_split'] == 'val']"
+system#datasets#predict#data#filter_fn:
+                      - "$lambda x: x[x['sat_split'] == 'test']"
+trainer#callbacks#0#until_epoch: 0

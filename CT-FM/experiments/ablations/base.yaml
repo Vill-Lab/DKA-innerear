@@ -1,0 +1,77 @@
+vars:
+    NUM_FTRS_BY_BACKBONE: {"SegResNetDS": 512, "ResNet50x2": 4096}
+    SPACING: [3, 1, 1]
+
+project: "/home/suraj/Repositories/lighter-ct-fm"
+
+_requires_:
+    - "$import monai"
+    - "$import torch"
+
+trainer:
+    _target_: pytorch_lightning.Trainer
+    benchmark: True
+    # Ablations - 80 epochs, 500 batches per epoch, 4 batch size, 4 GPUs / 148,134 dataset size ≈ 4.3 epochs
+    max_epochs: 25
+    limit_train_batches: 500
+    accelerator: gpu
+    devices: 3
+    strategy: ddp_find_unused_parameters_false
+    sync_batchnorm: True
+    precision: 16-mixed
+    log_every_n_steps: 100
+    logger: 
+        _target_: pytorch_lightning.loggers.WandbLogger
+        name: $f"CT_FM_{@vars#FRAMEWORK}_{@vars#BACKBONE_NAME}"
+        project: CT_FM
+        save_dir: $f"/mnt/data1/CT_FM/technical_ablation/runs/logs/CT_FM_{@vars#FRAMEWORK}_{@vars#BACKBONE_NAME}"
+  
+    callbacks:
+        - _target_: pytorch_lightning.callbacks.ModelCheckpoint
+          dirpath: $f"/mnt/data1/CT_FM/technical_ablation/runs/checkpoints/CT_FM_{@vars#FRAMEWORK}_{@vars#BACKBONE_NAME}"
+          save_last: True
+          verbose: True
+          every_n_epochs: 1
+
+system:
+    _target_: lighter.System
+
+    model:
+  
+    optimizer:
+        _target_: torch.optim.AdamW
+        params: "$@system#model.parameters()"
+        lr: 0.0001
+        
+        weight_decay: 0.000001
+  
+
+    scheduler:
+        _target_: torch.optim.lr_scheduler.CosineAnnealingLR
+        optimizer: "@system#optimizer"
+        T_max: "%trainer#max_epochs"
+        eta_min: 0.000001
+
+    dataloaders:
+        train:
+            _target_: torch.utils.data.DataLoader
+            batch_size: 5
+            pin_memory: True
+            num_workers: 10            
+            dataset:
+                _target_: project.data.safe_dataset.SafeDataset
+                dataset:
+                    _target_: monai.data.Dataset
+                    data: "$sorted(list(Path('/mnt/ssd1/ibro/IDC_SSL_CT').rglob('*.nrrd')))"
+                    _requires_: "$from pathlib import Path"
+                    transform:
+
+    adapters:
+        train:
+            batch:
+                _target_: lighter.adapters.BatchAdapter
+                input_accessor: "input"
+
+            criterion:
+                _target_: lighter.adapters.CriterionAdapter
+                pred_argument: 0

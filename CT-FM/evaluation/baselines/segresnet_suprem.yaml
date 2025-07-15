@@ -1,0 +1,19 @@
+vars#name: suprem_segresnet_eval
+vars#axcodes: "RAS"
+system#model:
+      _target_: project.models.suprem.SuPreM_loader
+      model:
+        _target_: monai.networks.nets.SegResNet
+        in_channels: "%vars#in_channels"
+        out_channels: "%vars#out_channels"
+        init_filters: 16
+        dropout_prob: 0.0
+        blocks_down: [1, 2, 2, 4]
+        blocks_up: [1, 1, 1]
+      ckpt_path: "/mnt/data1/CT_FM/baselines/SuPreM_SegResNet/supervised_suprem_segresnet_2100.pth"
+      decoder: False
+
+trainer#callbacks#0:
+         _target_: lighter.callbacks.LighterFreezer
+        # _orig_mod is torch.compile added notation
+        name_starts_with: ["convInit", "down_layers"]

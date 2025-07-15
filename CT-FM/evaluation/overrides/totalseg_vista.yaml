@@ -1,0 +1,9 @@
+vars#group: "v2" 
+vars#dataset_dir: "/mnt/data1/TotalSegmentator/v2/processed"
+system#dataloaders#train#dataset#data#filter_fn:
+                      - "$lambda x: x[x['vista_split'] == 'train']"
+system#dataloaders#val#dataset#data#filter_fn:
+                      - "$lambda x: x[x['vista_split'] == 'val']"
+system#dataloaders#predict#dataset#data#filter_fn:
+                      - "$lambda x: x[x['vista_split'] == 'test']"
+trainer#max_epochs: 300

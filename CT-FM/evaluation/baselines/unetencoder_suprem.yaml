@@ -1,0 +1,10 @@
+system#model#trunk:
+      _target_: project.models.suprem.SuPreM_loader
+      model:
+        _target_: project.models.backbones.unet3d.UNet3D
+        n_class: "%vars#num_classes"
+      ckpt_path: "/mnt/data1/CT_FM/baselines/SuPreM_UNet/supervised_suprem_unet_2100.pth"
+      decoder: False
+      encoder_only: True
+
+system#model#pre_func: null

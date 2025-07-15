@@ -1,0 +1,376 @@
+project: .
+_requires_:
+    - "$import monai"
+    - "$import torch"
+
+args:
+  test: 
+    ckpt_path: $f"{@vars#ckpt_dir}/best.ckpt"
+  predict: "%#test"
+
+
+vars:
+    # Run-specific variables
+    name:
+    datetime:
+    mode:
+
+    # Experiment settings
+    init_LR: 0.0001
+    format: "$'monai' if 'suprem' in @vars#name or 'vista' in @vars#name else 'lighter'"
+    patch_size: "$[48, 128, 128] if @vars#format == 'lighter' else [128, 128, 48]"
+    pixdim: "$[5, 2, 2] if @vars#format == 'lighter' else [2, 2, 5]"
+    axcodes: "$'SPL' if @vars#format == 'lighter' else 'RAS'"
+    in_channels: 1
+    num_classes: 1
+    embedding_dim:  # Model-specific
+    percentage: 100  # Percentage of the dataset to use
+
+    # System specific variables
+    dataset_dir: "/mnt/data6/ibro/Datasets/SinoCT"
+    cache_dir: '$f"/home/ibrahim/Projects/CT_FM/cache_data/sinoct/{@vars#format}/{@vars#percentage}"'
+    ckpt_dir: '$f"/home/ibrahim/Projects/CT_FM/evaluations/sinoct/checkpoints/{@vars#datetime}/{@vars#name}"'
+
+trainer:
+    _target_: pytorch_lightning.Trainer
+    benchmark: True
+    max_epochs: 40
+    check_val_every_n_epoch: 1
+    accelerator: gpu
+    # ---------
+    devices: 4
+    strategy: ddp
+    sync_batchnorm: True
+    # ---------
+    precision: 16-mixed
+    log_every_n_steps: 30
+    callbacks:
+        - _target_: lighter.callbacks.LighterFreezer
+          name_starts_with: ["trunk"]
+        - _target_: pytorch_lightning.callbacks.ModelCheckpoint
+          dirpath: "@vars#ckpt_dir"
+          save_last: False
+          monitor: "val/metrics/BinaryAUROC/epoch"
+          mode: "max"
+          filename: "best"
+          auto_insert_metric_name: False
+          verbose: True
+          every_n_epochs: "%trainer#check_val_every_n_epoch"
+    logger:
+        _target_: pytorch_lightning.loggers.WandbLogger
+        project: "sinoct"
+        name: "@vars#name"
+        save_dir: "./.wandb"
+        group: $f"{@vars#datetime}_{@vars#mode}"
+
+
+system:
+    _target_: lighter.LighterSystem
+    batch_size: 16
+    pin_memory: True
+    num_workers: 24
+
+    model:
+        _target_: project.models.wrapper.TrunkHeadWrapper
+        trunk:
+        head:
+            - _target_: torch.nn.AdaptiveAvgPool3d
+              output_size: 1
+            - _target_: torch.nn.Flatten
+            - _target_: torch.nn.Linear
+              in_features: "@vars#embedding_dim"
+              out_features: "$@vars#embedding_dim // 2"
+            - _target_: torch.nn.ReLU
+              inplace: True
+            - _target_: torch.nn.Linear
+              in_features: "$@vars#embedding_dim // 2"
+              out_features: "@vars#num_classes"
+        pre_func:  
+            - "$lambda x: x[-1]"
+
+    criterion:
+        _target_: torch.nn.BCEWithLogitsLoss
+
+    optimizer:
+        _target_: torch.optim.AdamW
+        params: "$@system#model.parameters()"
+        lr: "@vars#init_LR"
+        weight_decay: 1.0e-05 
+
+    scheduler:
+        _target_: monai.optimizers.WarmupCosineSchedule
+        optimizer: "@system#optimizer"
+        warmup_steps: 0 # "$@trainer#max_epochs//10"
+        end_lr:  "$@system#optimizer#lr * 0.01"
+        warmup_multiplier: 0.1
+        t_total: "@trainer#max_epochs"
+
+    metrics:
+        train:
+            - _target_: torchmetrics.classification.AUROC
+              task: binary
+            - _target_: torchmetrics.classification.Accuracy
+              task: binary
+            - _target_: torchmetrics.classification.Precision
+              task: binary
+            - _target_: torchmetrics.classification.Recall
+              task: binary
+            - _target_: torchmetrics.classification.Specificity
+              task: binary
+        val: "%#train"
+        test: "%#train"
+
+    datasets:
+        train:
+            _target_: monai.data.PersistentDataset
+            cache_dir: '$f"{@vars#cache_dir}/train"'
+            hash_transform: "$monai.data.utils.json_hashing"
+            data:
+                _target_: project.data.get_sinoct_datalist
+                data_dir: "@vars#dataset_dir"
+                percentage: "@vars#percentage"
+                split: "train"
+                split_ratio: [0.8, 0.1, 0.1]
+                seed: 0
+            transform:
+                _target_: monai.transforms.Compose
+                transforms:
+                    - _target_: monai.transforms.LoadImaged
+                      keys: image
+                      reader: ITKReader
+                      ensure_channel_first: True
+                    - _target_: monai.transforms.EnsureTyped
+                      keys: image
+                    - _target_: monai.transforms.Orientationd
+                      keys: image
+                      axcodes: "%vars#axcodes"
+                    - _target_: monai.transforms.CropForegroundd
+                      keys: image
+                      source_key: image
+                    - _target_: monai.transforms.Spacingd
+                      keys: image
+                      pixdim: "%vars#pixdim"
+                      mode: bilinear
+                    - _target_: monai.transforms.SpatialPadd
+                      keys: image
+                      spatial_size: "%vars#patch_size"
+                      mode: minimum      
+                    - _target_: monai.transforms.CenterSpatialCropd
+                      keys: image
+                      roi_size: "%vars#patch_size"
+                    # ---- Four channeled-image, each channel for a window ----
+                    - _target_: monai.transforms.CopyItemsd
+                      keys: image
+                      times: 4
+                      names: ["blood", "subdural", "stroke", "bone"]
+                    - _target_: monai.transforms.ScaleIntensityRanged
+                      keys: blood
+                      a_min: 0
+                      a_max: 80
+                      b_min: 0
+                      b_max: 1
+                      clip: True
+                    - _target_: monai.transforms.ScaleIntensityRanged
+                      keys: subdural
+                      a_min: -125
+                      a_max: 175
+                      b_min: 0
+                      b_max: 1
+                      clip: True
+                    - _target_: monai.transforms.ScaleIntensityRanged
+                      keys: stroke
+                      a_min: 28
+                      a_max: 36
+                      b_min: 0
+                      b_max: 1
+                      clip: True
+                    - _target_: monai.transforms.ScaleIntensityRanged
+                      keys: bone
+                      a_min: -900
+                      a_max: 2100
+                      b_min: 0
+                      b_max: 1
+                      clip: True
+                    - _target_: monai.transforms.ConcatItemsd
+                      keys: ["blood", "subdural", "stroke", "bone"]
+                      name: image
+                      dim: 1
+                    # --------------------------------------------------------
+                    # --- Above same for train/val/test, below not ---
+                    - _target_: monai.transforms.RandAffined
+                      keys: image
+                      prob: 0.2
+                      rotate_range: [0.26, 0.26, 0.26]
+                      scale_range: [0.2, 0.2, 0.2]
+                      cache_grid: True
+                      padding_mode: constant
+                    - _target_: monai.transforms.Lambda
+                      func: '$lambda x: {"input": x["image"].as_tensor(), "target": x["label"]}'
+                      track_meta: False
+    
+        val:
+            _target_: monai.data.PersistentDataset
+            cache_dir: '$f"{@vars#cache_dir}/val"'
+            hash_transform: "$monai.data.utils.json_hashing"
+            data:
+                _target_: project.data.get_sinoct_datalist
+                data_dir: "@vars#dataset_dir"
+                percentage: "@vars#percentage"
+                split: "val"
+                split_ratio: [0.8, 0.1, 0.1]
+                seed: 0
+            transform:
+                _target_: monai.transforms.Compose
+                transforms:
+                    - _target_: monai.transforms.LoadImaged
+                      keys: image
+                      reader: ITKReader
+                      ensure_channel_first: True
+                    - _target_: monai.transforms.EnsureTyped
+                      keys: image
+                    - _target_: monai.transforms.Orientationd
+                      keys: image
+                      axcodes: "%vars#axcodes"
+                    - _target_: monai.transforms.CropForegroundd
+                      keys: image
+                      source_key: image
+                    - _target_: monai.transforms.Spacingd
+                      keys: image
+                      pixdim: "%vars#pixdim"
+                      mode: bilinear
+                    - _target_: monai.transforms.SpatialPadd
+                      keys: image
+                      spatial_size: "%vars#patch_size"
+                      mode: minimum   
+                    - _target_: monai.transforms.CenterSpatialCropd
+                      keys: image
+                      roi_size: "%vars#patch_size"  
+                    # ---- Four channeled-image, each channel for a window ----
+                    - _target_: monai.transforms.CopyItemsd
+                      keys: image
+                      times: 4
+                      names: ["blood", "subdural", "stroke", "bone"]
+                    - _target_: monai.transforms.ScaleIntensityRanged
+                      keys: blood
+                      a_min: 0
+                      a_max: 80
+                      b_min: 0
+                      b_max: 1
+                      clip: True
+                    - _target_: monai.transforms.ScaleIntensityRanged
+                      keys: subdural
+                      a_min: -125
+                      a_max: 175
+                      b_min: 0
+                      b_max: 1
+                      clip: True
+                    - _target_: monai.transforms.ScaleIntensityRanged
+                      keys: stroke
+                      a_min: 28
+                      a_max: 36
+                      b_min: 0
+                      b_max: 1
+                      clip: True
+                    - _target_: monai.transforms.ScaleIntensityRanged
+                      keys: bone
+                      a_min: -900
+                      a_max: 2100
+                      b_min: 0
+                      b_max: 1
+                      clip: True
+                    - _target_: monai.transforms.ConcatItemsd
+                      keys: ["blood", "subdural", "stroke", "bone"]
+                      name: image
+                      dim: 1
+                    # --------------------------------------------------------
+                    # --- Above same for train/val/test, below not ---
+                    - _target_: monai.transforms.Lambda
+                      func: '$lambda x: {"input": x["image"].as_tensor(), "target": x["label"]}'
+                      track_meta: False
+        test:
+            _target_: monai.data.Dataset
+            data:
+                _target_: project.data.get_sinoct_datalist
+                data_dir: "@vars#dataset_dir"
+                percentage: "@vars#percentage"
+                split: "test"
+                split_ratio: [0.8, 0.1, 0.1]
+                seed: 0
+            transform:
+                _target_: monai.transforms.Compose
+                transforms:
+                    - _target_: monai.transforms.LoadImaged
+                      keys: image
+                      reader: ITKReader
+                      ensure_channel_first: True
+                    - _target_: monai.transforms.EnsureTyped
+                      keys: image
+                    - _target_: monai.transforms.Orientationd
+                      keys: image
+                      axcodes: "%vars#axcodes"
+                    - _target_: monai.transforms.CropForegroundd
+                      keys: image
+                      source_key: image
+                    - _target_: monai.transforms.Spacingd
+                      keys: image
+                      pixdim: "%vars#pixdim"
+                      mode: bilinear
+                    - _target_: monai.transforms.SpatialPadd
+                      keys: image
+                      spatial_size: "%vars#patch_size"
+                      mode: minimum   
+                    - _target_: monai.transforms.CenterSpatialCropd
+                      keys: image
+                      roi_size: "%vars#patch_size"  
+                    # ---- Four channeled-image, each channel for a window ----
+                    - _target_: monai.transforms.CopyItemsd
+                      keys: image
+                      times: 4
+                      names: ["blood", "subdural", "stroke", "bone"]
+                    - _target_: monai.transforms.ScaleIntensityRanged
+                      keys: blood
+                      a_min: 0
+                      a_max: 80
+                      b_min: 0
+                      b_max: 1
+                      clip: True
+                    - _target_: monai.transforms.ScaleIntensityRanged
+                      keys: subdural
+                      a_min: -125
+                      a_max: 175
+                      b_min: 0
+                      b_max: 1
+                      clip: True
+                    - _target_: monai.transforms.ScaleIntensityRanged
+                      keys: stroke
+                      a_min: 28
+                      a_max: 36
+                      b_min: 0
+                      b_max: 1
+                      clip: True
+                    - _target_: monai.transforms.ScaleIntensityRanged
+                      keys: bone
+                      a_min: -900
+                      a_max: 2100
+                      b_min: 0
+                      b_max: 1
+                      clip: True
+                    - _target_: monai.transforms.ConcatItemsd
+                      keys: ["blood", "subdural", "stroke", "bone"]
+                      name: image
+                      dim: 1
+                    # --------------------------------------------------------
+                    # --- Above same for train/val/test, below not ---
+                    - _target_: monai.transforms.Lambda
+                      func: '$lambda x: {"input": x["image"].as_tensor(), "target": x["label"], "id": x["id"]}'
+                      track_meta: False                 
+
+    postprocessing:
+        criterion:
+            pred:
+                - "$lambda x: x.flatten().float()"  # Prediction has an unnecessary dimension ([1, 1]), flattening it
+            target:
+                - "$lambda x: x.float()"
+        metrics:
+            pred:
+                - "$lambda x: torch.sigmoid(x)"

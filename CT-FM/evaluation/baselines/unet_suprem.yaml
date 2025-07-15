@@ -1,0 +1,14 @@
+system#model:
+      _target_: project.models.suprem.SuPreM_loader
+      model:
+        _target_: project.models.backbones.unet3d.UNet3D
+        n_class: "%vars#out_channels"
+      ckpt_path: "/mnt/data1/CT_FM/baselines/SuPreM_UNet/supervised_suprem_unet_2100.pth"
+      decoder: False
+
+trainer#callbacks#0:
+        _target_: lighter.callbacks.Freezer
+        # _orig_mod is torch.compile added notation
+        name_starts_with: ["down_tr"]
+
+          
