@@ -4,7 +4,7 @@ Plug-and-Play Domain Knowledge Aggregator for inner ear CT analysis.
 
 ## 📜 Introduction
 
-The IEITD dataset is constructed by Visual and Intelligent Learning Lab, Tongji University and Department of Otolaryngology-Head and Neck Surgery, Shanghai Ninth People's Hospital, Shanghai Jiao Tong University School of Medicine.
+The IECD dataset is constructed by Visual and Intelligent Learning Lab, Tongji University and Department of Otolaryngology-Head and Neck Surgery, Shanghai Ninth People's Hospital, Shanghai Jiao Tong University School of Medicine.
 
 ![pipeline4](./figures/pipeline4.png)
 
@@ -34,6 +34,10 @@ To visualize DKA on Merlin on IEITD, do
 cd Merlin/documentation/
 python visualize.py --fold $fold
 ```
+
+## TODO
+
+Upload SAM-Med3D and model weights.
 
 ## Reference
 
