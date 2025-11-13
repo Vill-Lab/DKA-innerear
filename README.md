@@ -4,7 +4,7 @@ Plug-and-Play Domain Knowledge Aggregator for inner ear CT analysis.
 
 ## 📜 Introduction
 
-The IECD dataset is constructed by Visual and Intelligent Learning Lab, Tongji University and Department of Otolaryngology-Head and Neck Surgery, Shanghai Ninth People's Hospital, Shanghai Jiao Tong University School of Medicine.
+The CIED dataset is constructed by Visual and Intelligent Learning Lab, Tongji University and Department of Otolaryngology-Head and Neck Surgery, Shanghai Ninth People's Hospital, Shanghai Jiao Tong University School of Medicine.
 
 ![pipeline4](./figures/pipeline4.png)
 
@@ -38,6 +38,10 @@ python visualize.py --fold $fold
 ## TODO
 
 Upload SAM-Med3D and model weights.
+
+## Dataset
+
+The CIED is now available on [Google Drive](https://drive.google.com/drive/folders/197Sjr4oUUJEFro6r2i-l5LJPkCiyMipb?usp=sharing).
 
 ## Reference
 
