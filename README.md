@@ -1,4 +1,4 @@
-# Tuning Medical Foundation Models for Inner Ear Temporal CT Analysis with Plug-and-play Domain Knowledge Aggregator
+# [AAAI-26] Tuning Medical Foundation Models for Inner Ear Temporal CT Analysis with Plug-and-play Domain Knowledge Aggregator
 
 Plug-and-Play Domain Knowledge Aggregator for inner ear CT analysis.
 
